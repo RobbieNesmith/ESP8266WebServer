@@ -1,3 +1,4 @@
+import gc
 import uasyncio
 
 class ESP8266WebServer:
@@ -38,6 +39,7 @@ class ESP8266WebServer:
       return (key_value[0], "")
 
   def _process_request(self, req):
+    gc.collect()
     method, req = req.split("\r\n", 1)
     method, path, protocol = method.split(" ")
     query_params = {}
