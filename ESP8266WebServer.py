@@ -1,6 +1,4 @@
 import uasyncio
-import usocket as socket
-import uselect as select
 
 class ESP8266WebServer:
   def __init__(self, binding=("0.0.0.0", 80), backlog=5):
@@ -9,37 +7,28 @@ class ESP8266WebServer:
     self.routes = {}
     self._background_process = None
     self._not_found = self._default_not_found
-    self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.server.bind(self.binding)
 
   def run(self):
-    self.server.listen(self.backlog)
-    uasyncio.create_task(self._server_loop())
+    uasyncio.create_task(uasyncio.start_server(self.server_callback, self.binding[0], self.binding[1]))
     if (self._background_process):
       uasyncio.create_task(self._background_process())
     uasyncio.get_event_loop().run_forever()
     
-  def _send_resp(self, client, status=200, status_message="OK", payload="200 OK", headers={}):
-    client.send('HTTP/1.0 {} {}\r\n'.format(status, status_message))
+  async def _send_resp(self, writer, status=200, status_message="OK", payload="200 OK", headers={}):
+    await writer.awrite('HTTP/1.0 {} {}\r\n'.format(status, status_message))
     for header in headers:
-      client.send("{}: {}".format(header, headers[header]) + '\r\n')
-    client.send('\r\n')
-    client.send(payload)
+      await writer.awrite("{}: {}".format(header, headers[header]) + '\r\n')
+    await writer.awrite('\r\n')
+    await writer.awrite(payload)
 
-  async def _server_loop(self):
-    while(True):
-      r, w, err = select.select((self.server,), (), (), 1)
-      if r:
-        for readable in r:
-          client, client_addr = self.server.accept()
-          try:
-            req = client.recv(1024).decode("utf-8")
-            if len(req):
-              self._process_route(client, self._process_request(req))
-            client.close()
-          except OSError as e:
-            pass
-      await uasyncio.sleep(0.1)
+  def server_callback(self, reader, writer):
+    try:
+      req = (await reader.read(1024)).decode("utf-8")
+      if len(req):
+        await self._process_route(writer, self._process_request(req))
+      await writer.aclose()
+    except OSError as e:
+      pass
 
   def _process_query_param(self, query_param):
     key_value = query_param.split("=", 1)
@@ -66,12 +55,12 @@ class ESP8266WebServer:
     out["req"] = req
     return out
 
-  def _process_route(self, client, req_obj):
+  async def _process_route(self, writer, req_obj):
     if req_obj["path"] in self.routes:
       if req_obj["method"] in self.routes[req_obj["path"]]:
-        self._send_resp(client, **self.routes[req_obj["path"]][req_obj["method"]](request_object=req_obj))
+        await self._send_resp(writer, **self.routes[req_obj["path"]][req_obj["method"]](request_object=req_obj))
         return
-    self._send_resp(client, **self._not_found(request_object=req_obj))
+    await self._send_resp(writer, **self._not_found(request_object=req_obj))
 
   def _default_not_found(self, request_object):
     return {"status": 404, "status_message": "Not Found", "payload": "404 Not Found"}
