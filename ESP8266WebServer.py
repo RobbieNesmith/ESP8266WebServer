@@ -10,15 +10,16 @@ class ESP8266WebServer:
     self._not_found = self._default_not_found
 
   def run(self):
-    uasyncio.create_task(uasyncio.start_server(self.server_callback, self.binding[0], self.binding[1]))
+    host, port = self.binding
+    uasyncio.create_task(uasyncio.start_server(self.server_callback, host, port))
     if (self._background_process):
       uasyncio.create_task(self._background_process())
     uasyncio.get_event_loop().run_forever()
     
   async def _send_resp(self, writer, status=200, status_message="OK", payload="200 OK", headers={}):
     await writer.awrite('HTTP/1.0 {} {}\r\n'.format(status, status_message))
-    for header in headers:
-      await writer.awrite("{}: {}".format(header, headers[header]) + '\r\n')
+    for header_key, header_val in headers.items():
+      await writer.awrite("{}: {}".format(header_key, header_val) + '\r\n')
     await writer.awrite('\r\n')
     await writer.awrite(payload)
 
@@ -45,9 +46,9 @@ class ESP8266WebServer:
     query_params = {}
     if "?" in path:
       path, query_params = path.split("?", 1)
-      query_params = {qp[0]: qp[1] for qp in [self._process_query_param(query_param) for query_param in filter(len, query_params.split("&"))]}
+      query_params = {qp_key: qp_val for qp_key, qp_val in [self._process_query_param(query_param) for query_param in filter(len, query_params.split("&"))]}
     headers, req = req.split("\r\n\r\n", 1)
-    headers = {kv[0]: kv[1] for kv in [header.split(": ", 1) for header in headers.split("\r\n")]}
+    headers = {header_key: header_val for header_key, header_val in [header.split(": ", 1) for header in headers.split("\r\n")]}
     out = {}
     out["method"] = method
     out["path"] = path
